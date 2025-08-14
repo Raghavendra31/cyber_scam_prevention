@@ -1,42 +1,48 @@
-# filename: api.py
 from flask import Flask, request, jsonify
-import joblib
+import pickle
 import os
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)  # Allow requests from Flutter
+
+# Paths for model and vectorizer
+model_path = os.path.join("model/scam_model.pkl")
+vectorizer_path = os.path.join("model/vectorizer.pkl")
 
 # Load model and vectorizer
-model_path = 'model/scam_model.pkl'
-vectorizer_path = 'model/vectorizer.pkl'
-
-if not os.path.exists(model_path) or not os.path.exists(vectorizer_path):
-    raise Exception("Model or vectorizer file not found. Please run train.py first.")
-
-print("✅ Loading model and vectorizer...")
-model = joblib.load(model_path)
-vectorizer = joblib.load(vectorizer_path)
-print("✅ Model and vectorizer loaded successfully.")
+with open(model_path, 'rb') as f:
+    model = pickle.load(f)
+with open(vectorizer_path, 'rb') as f:
+    vectorizer = pickle.load(f)
 
 @app.route('/check', methods=['POST'])
 def check_scam():
-    data = request.get_json()
-    message = data.get("message", "")
-    if not message:
-        return jsonify({"error": "No message provided"}), 400
+    try:
+        data = request.get_json()
+        message = data.get('message', '')
 
-    # Transform and predict
-    X = vectorizer.transform([message])
-    prediction = model.predict(X)[0]
-    prediction_prob = model.predict_proba(X)[0][1]
+        if not message:
+            return jsonify({'error': 'Message is required'}), 400
 
-    # Debug print for terminal
-    print("🔍 Message received:", message)
-    print("🧠 Prediction:", prediction, "| Scam Probability:", prediction_prob)
+        # Transform and predict
+        transformed = vectorizer.transform([message])
+        prediction = model.predict(transformed)[0]
 
-    return jsonify({
-        "prediction": int(prediction),
-        "probability": round(float(prediction_prob), 2)
-    })
+        # Map prediction
+        label = 'scam' if prediction == 1 else 'safe'
+        return jsonify({'result': label})
+
+    except Exception as e:
+        print("❌ Error:", e)
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/', methods=['GET'])
+def home():
+    return "✅ Scam Detector API Running"
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, port=5000)
+
+
+# ngrok http 5000
