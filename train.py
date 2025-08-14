@@ -1,49 +1,62 @@
-import pandas as pd
-import os
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import classification_report, confusion_matrix
+from flask import Flask, request, jsonify
 import joblib
+import os
+from flask_cors import CORS
+import re
 
-# Load dataset
-data_path = os.path.join("data", "scams.csv")
-df = pd.read_csv(data_path)
+app = Flask(__name__)
+CORS(app)
 
-# Standardize and clean data
-df.columns = df.columns.str.lower()
-df['label'] = df['label'].str.strip().str.lower()
-df = df[df['label'].isin(['safe', 'scam'])]  # Filter only valid labels
-df.dropna(subset=['message', 'label'], inplace=True)
+# Paths
+MODEL_PATH = 'scam_model.pkl'
+VECTORIZER_PATH = 'model/vectorizer.pkl'
 
-# Encode labels: scam = 1, safe = 0
-df['label'] = df['label'].map({'safe': 0, 'scam': 1})
+# Load model & vectorizer
+if not os.path.exists(MODEL_PATH) or not os.path.exists(VECTORIZER_PATH):
+    raise FileNotFoundError("❌ Model/vectorizer not found. Run train.py first.")
 
-# Show label distribution
-print("🔍 Label distribution:\n", df['label'].value_counts())
+print("✅ Loading model and vectorizer...")
+model = joblib.load(MODEL_PATH)
+vectorizer = joblib.load(VECTORIZER_PATH)
+print("✅ Model and vectorizer loaded successfully.")
 
-# Train/test split
-X = df['message']
-y = df['label']
+def preprocess_text(text):
+    """Apply same preprocessing as in train.py."""
+    text = text.lower().strip()
+    text = re.sub(r'[^\w\s]', '', text)  # remove punctuation
+    return text
 
-vectorizer = TfidfVectorizer(stop_words='english', lowercase=True)
-X_vectorized = vectorizer.fit_transform(X)
+@app.route('/check', methods=['POST'])
+def check_scam():
+    try:
+        data = request.get_json(force=True)
+        message = data.get("message", "")
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X_vectorized, y, test_size=0.2, random_state=42, stratify=y
-)
+        if not message.strip():
+            return jsonify({"error": "No message provided"}), 400
 
-# Train model
-model = LogisticRegression(class_weight='balanced')
-model.fit(X_train, y_train)
+        # Preprocess
+        processed_msg = preprocess_text(message)
 
-# Evaluation
-y_pred = model.predict(X_test)
-print("\n📊 Classification Report:\n", classification_report(y_test, y_pred))
-print("🧮 Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+        # Transform & Predict
+        X = vectorizer.transform([processed_msg])
+        prediction = model.predict(X)[0]
+        probability = model.predict_proba(X)[0][1]
 
-# Save model
-os.makedirs("model", exist_ok=True)
-joblib.dump(model, "model/scam_model.pkl")
-joblib.dump(vectorizer, "model/vectorizer.pkl")
-print("✅ a Model and vectorizer saved to /model/")
+        print(f"\n🔍 Received: {message}")
+        print(f"🔧 Preprocessed: {processed_msg}")
+        print(f"🧠 Prediction: {prediction} | Scam Probability: {probability:.2f}")
+
+        return jsonify({
+            "original_message": message,
+            "processed_message": processed_msg,
+            "prediction": int(prediction),
+            "probability": round(float(probability), 2)
+        })
+
+    except Exception as e:
+        print("❌ Error:", str(e))
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

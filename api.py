@@ -1,48 +1,70 @@
 from flask import Flask, request, jsonify
-import pickle
-import os
-from flask_cors import CORS
+import joblib
+import re
 
 app = Flask(__name__)
-CORS(app)  # Allow requests from Flutter
 
-# Paths for model and vectorizer
-model_path = os.path.join("model/scam_model.pkl")
-vectorizer_path = os.path.join("model/vectorizer.pkl")
+# ===== Load Model & Vectorizer =====
+try:
+    model = joblib.load("model/scam_model.pkl")
+    vectorizer = joblib.load("model/vectorizer.pkl")
+    print("✅ Model and vectorizer loaded successfully.")
+except Exception as e:
+    print(f"❌ Error loading model/vectorizer: {e}")
+    exit(1)
 
-# Load model and vectorizer
-with open(model_path, 'rb') as f:
-    model = pickle.load(f)
-with open(vectorizer_path, 'rb') as f:
-    vectorizer = pickle.load(f)
+# ===== Text Cleaning Function =====
+def clean_text(text):
+    text = text.lower()
+    text = re.sub(r'[^a-z0-9\s]', ' ', text)  # keep alphanumeric & spaces
+    text = re.sub(r'\s+', ' ', text).strip()  # remove extra spaces
+    return text
 
-@app.route('/check', methods=['POST'])
+# ===== Scam Keyword List =====
+SCAM_KEYWORDS = [
+    "invest", "profit", "earn", "deposit", "trading", 
+    "funds", "cash", "lottery", "win", "reward", "urgent", 
+    "click here", "offer", "account"
+]
+
+def keyword_boost(text, probability):
+    """Boost probability if scam keywords are found"""
+    for word in SCAM_KEYWORDS:
+        if word in text:
+            # Ensure probability is at least 0.6
+            return max(probability, 0.6)
+    return probability
+
+@app.route("/check", methods=["POST"])
 def check_scam():
-    try:
-        data = request.get_json()
-        message = data.get('message', '')
+    data = request.get_json(force=True)
+    message = data.get("message", "")
 
-        if not message:
-            return jsonify({'error': 'Message is required'}), 400
+    # Clean text
+    cleaned_message = clean_text(message)
+    X = vectorizer.transform([cleaned_message])
 
-        # Transform and predict
-        transformed = vectorizer.transform([message])
-        prediction = model.predict(transformed)[0]
+    # Predict probability
+    probability = model.predict_proba(X)[0][1]
 
-        # Map prediction
-        label = 'scam' if prediction == 1 else 'safe'
-        return jsonify({'result': label})
+    # Apply keyword boost
+    probability = keyword_boost(cleaned_message, probability)
 
-    except Exception as e:
-        print("❌ Error:", e)
-        return jsonify({'error': str(e)}), 500
+    # ===== Updated threshold logic =====
+    threshold = 0.3  # probability >= 0.3 → scam
+    prediction = 1 if probability >= threshold else 0
 
-@app.route('/', methods=['GET'])
-def home():
-    return "✅ Scam Detector API Running"
+    # Logs
+    print("\n🔍 Received:", message)
+    print("🧹 Cleaned:", cleaned_message)
+    print(f"🧠 Prediction: {prediction} | Scam Probability: {probability:.4f}")
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    return jsonify({
+        "original_message": message,
+        "cleaned_message": cleaned_message,
+        "prediction": prediction,
+        "scam_probability": round(probability, 4)
+    })
 
-
-# ngrok http 5000
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)
