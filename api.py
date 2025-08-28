@@ -51,7 +51,7 @@ def check_scam():
     probability = keyword_boost(cleaned_message, probability)
 
     # ===== Updated threshold logic =====
-    threshold = 0.3  # probability >= 0.3 → scam
+    threshold = 0.6  # probability >= 0.5 → scam
     prediction = 1 if probability >= threshold else 0
 
     # Logs
