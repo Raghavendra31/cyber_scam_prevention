@@ -1,62 +1,67 @@
-from flask import Flask, request, jsonify
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.metrics import classification_report
 import joblib
-import os
-from flask_cors import CORS
 import re
+import os
 
-app = Flask(__name__)
-CORS(app)
+# --- 1. Load Data ---
+print("✅ Loading data from scams.csv...")
+try:
+    df = pd.read_csv('data/scamp15k_augmented.csv')
+    if df.empty:
+        raise ValueError("scams.csv is empty. Please add data.")
+except FileNotFoundError:
+    print("❌ Error: scams.csv not found. Make sure the file is in the same directory.")
+    exit()
+except Exception as e:
+    print(f"❌ Error loading CSV: {e}")
+    exit()
 
-# Paths
-MODEL_PATH = 'scam_model.pkl'
-VECTORIZER_PATH = 'model/vectorizer.pkl'
-
-# Load model & vectorizer
-if not os.path.exists(MODEL_PATH) or not os.path.exists(VECTORIZER_PATH):
-    raise FileNotFoundError("❌ Model/vectorizer not found. Run train.py first.")
-
-print("✅ Loading model and vectorizer...")
-model = joblib.load(MODEL_PATH)
-vectorizer = joblib.load(VECTORIZER_PATH)
-print("✅ Model and vectorizer loaded successfully.")
-
+# --- 2. Preprocessing Function ---
 def preprocess_text(text):
-    """Apply same preprocessing as in train.py."""
+    """Clean text to remove punctuation and extra spaces."""
     text = text.lower().strip()
     text = re.sub(r'[^\w\s]', '', text)  # remove punctuation
     return text
 
-@app.route('/check', methods=['POST'])
-def check_scam():
-    try:
-        data = request.get_json(force=True)
-        message = data.get("message", "")
+df['message'] = df['message'].apply(preprocess_text)
+print("✅ Data preprocessing complete.")
 
-        if not message.strip():
-            return jsonify({"error": "No message provided"}), 400
+# --- The Fix ---
+# Convert all values in the 'label' column to a string type.
+df['label'] = df['label'].astype(str)
+# --- End of Fix ---
 
-        # Preprocess
-        processed_msg = preprocess_text(message)
+# --- 3. Split Data ---
+X = df['message']
+y = df['label']
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-        # Transform & Predict
-        X = vectorizer.transform([processed_msg])
-        prediction = model.predict(X)[0]
-        probability = model.predict_proba(X)[0][1]
+# --- 4. Vectorize Text (TF-IDF) ---
+# Transform text into numerical vectors
+vectorizer = TfidfVectorizer()
+X_train_vec = vectorizer.fit_transform(X_train)
+X_test_vec = vectorizer.transform(X_test)
+print("✅ Text vectorization complete.")
 
-        print(f"\n🔍 Received: {message}")
-        print(f"🔧 Preprocessed: {processed_msg}")
-        print(f"🧠 Prediction: {prediction} | Scam Probability: {probability:.2f}")
+# --- 5. Train the Model (Multinomial Naive Bayes) ---
+model = MultinomialNB()
+model.fit(X_train_vec, y_train)
+print("✅ Model training complete.")
 
-        return jsonify({
-            "original_message": message,
-            "processed_message": processed_msg,
-            "prediction": int(prediction),
-            "probability": round(float(probability), 2)
-        })
+# --- 6. Evaluate Model Performance ---
+y_pred = model.predict(X_test_vec)
+print("\n--- Model Evaluation ---")
+print(classification_report(y_test, y_pred))
 
-    except Exception as e:
-        print("❌ Error:", str(e))
-        return jsonify({"error": str(e)}), 500
+# --- 7. Save the Model and Vectorizer ---
+# Create 'model' directory if it doesn't exist
+if not os.path.exists('model'):
+    os.makedirs('model')
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
+joblib.dump(model, 'scam_model.pkl')
+joblib.dump(vectorizer, 'model/vectorizer.pkl')
+print("\n✅ Model and vectorizer saved as 'scam_model.pkl' and 'model/vectorizer.pkl'.")
