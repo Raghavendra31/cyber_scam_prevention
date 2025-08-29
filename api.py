@@ -48,6 +48,9 @@ def check_scam():
         if not encrypted_message:
             return jsonify({"error": "No encrypted data provided"}), 400
 
+        # 📥 Show encrypted incoming message
+        print("📥 Encrypted incoming message:", encrypted_message)
+
         # 🔑 Decrypt message
         decrypted_message = fernet.decrypt(encrypted_message.encode()).decode()
 
@@ -69,12 +72,17 @@ def check_scam():
         print("🧹 Cleaned:", cleaned_message)
         print(f"🧠 Prediction: {prediction} | Scam Probability: {probability:.4f}")
 
-        return jsonify({
+        response = {
             "original_message": decrypted_message,
             "cleaned_message": cleaned_message,
             "prediction": prediction,
             "scam_probability": round(probability, 4)
-        })
+        }
+
+        # 📤 Show outgoing response JSON
+        print("📤 Response JSON:", response)
+
+        return jsonify(response)
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -82,3 +90,5 @@ def check_scam():
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
+
+#https://2669f78ea775.ngrok-free.app
