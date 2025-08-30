@@ -83,7 +83,7 @@ def check_scam():
         # 📥 Show encrypted incoming message
         print("📥 Encrypted incoming message:", encrypted_message)
 
-        # 🔑 Decrypt message
+        # 🔑 Decrypt messge
         decrypted_message = fernet.decrypt(encrypted_message.encode()).decode()
 
         # Clean text
